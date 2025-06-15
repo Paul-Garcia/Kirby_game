@@ -167,13 +167,13 @@ function getWinner(room) {
 
 // Fonction pour afficher les infos des connexions toutes les 2 secondes
 setInterval(async () => {
-  // console.log(`\n=== État du serveur toutes les 2 secondes ===`)
-  // console.log(`Nombre de joueurs connectés : ${players.length}`)
-  // players.forEach((p, index) => {
-  //   console.log(`Joueur ${index + 1} : Socket ID - ${p.id}`)
-  // })
+  console.log(`\n=== État du serveur toutes les 2 secondes ===`)
+  console.log(`Nombre de joueurs connectés : ${players.length}`)
+  players.forEach((p, index) => {
+    console.log(`Joueur ${index + 1} : Socket ID - ${p.id}`)
+  })
 
-  // console.log(`\nNombre de rooms : ${Object.keys(gameRooms).length}`)
+  console.log(`\nNombre de rooms : ${Object.keys(gameRooms).length}`)
   Object.entries(gameRooms).forEach(([roomId, room], index) => {
     if((isNaN(room.player1.reactionTime) && isNaN(room.player2.reactionTime)) && room.emit_time != undefined && room.res_send == false) {
       room.res_send = true;
@@ -191,11 +191,11 @@ setInterval(async () => {
         }
       })
     }
-    // console.log(`Room ${index + 1} - ID: ${roomId} : Time - ${room.emit_time} : Res Send - ${room.res_send}`)
-    // console.log(` - Joueur 1 : ${room.player1.socket.id} | ready: ${room.player1.ready} | finished: ${room.player1.finished} | Time - ${room.player1.reactionTime}ms | Connected - ${room.player1.connected}`)
-    // console.log(` - Joueur 2 : ${room.player2.socket.id} | ready: ${room.player2.ready} | finished: ${room.player2.finished} | Time - ${room.player2.reactionTime}ms | Connected - ${room.player2.connected}`)
+    console.log(`Room ${index + 1} - ID: ${roomId} : Time - ${room.emit_time} : Res Send - ${room.res_send}`)
+    console.log(` - Joueur 1 : ${room.player1.socket.id} | ready: ${room.player1.ready} | finished: ${room.player1.finished} | Time - ${room.player1.reactionTime}ms | Connected - ${room.player1.connected}`)
+    console.log(` - Joueur 2 : ${room.player2.socket.id} | ready: ${room.player2.ready} | finished: ${room.player2.finished} | Time - ${room.player2.reactionTime}ms | Connected - ${room.player2.connected}`)
   })
-  // console.log(`============================================\n`)
+  console.log(`============================================\n`)
 }, 500)
 
 
