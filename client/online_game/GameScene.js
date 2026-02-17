@@ -9,8 +9,8 @@ export class GameScene extends Phaser.Scene {
         this.add.image(0, 0, 'background').setOrigin(0, 0).setDepth(0);
         this.load.spritesheet('foreground', './online_game/foreground_grass.png', {
             frameWidth: 512,
-            frameHeight: 56, 
-            endFrame: 4
+            frameHeight: 112,
+            endFrame: 3
         });
 
         this.load.atlas('waddle', './online_game/waddle.png', './online_game/waddle.json');
@@ -64,10 +64,12 @@ export class GameScene extends Phaser.Scene {
     create() {
         socket.removeAllListeners('result')
         socket.removeAllListeners('go')
+        const UI_FONT = '"Press Start 2P", monospace'
+        const UI_TEXT_RES = 2
 
         
         this.add.image(0, 0, 'background').setOrigin(0, 0).setDepth(0);
-        this.spriteforeground = this.add.sprite(0, 444, 'foreground', 0).setOrigin(0, 1).setDepth(1);
+        this.spriteforeground = this.add.sprite(0, 440, 'foreground', 0).setOrigin(0, 1).setDepth(1);
         this.waddle = this.add.sprite(320, 320, 'waddle', 'waddle1').setOrigin(0, 1).setDepth(2);
         this.kirb = this.add.sprite(120, 320, 'kirb', 'kirb1').setOrigin(0, 1).setDepth(2);
         // this.kirb = this.add.sprite(256, 222, 'go', 'go1').setOrigin(0.5, 0.5).setDepth(3);
@@ -91,10 +93,33 @@ export class GameScene extends Phaser.Scene {
 
 
         const text = this.add.text(256, 50, "Click the quickest\nwhen you see !!!" || '', {
-            fontSize: '32px',
-            color: '#fff'
-        }).setOrigin(0.5)
-  
+            fontFamily: UI_FONT,
+            fontSize: '20px',
+            color: '#fff',
+            align: 'center'
+        }).setOrigin(0.5).setResolution(UI_TEXT_RES)
+
+        // Pseudos au-dessus des personnages
+        const kirbyName = window.localStorage.getItem('kirby_kirby_name') || 'Kirby'
+        const waddleName = window.localStorage.getItem('kirby_waddle_name') || 'Waddle'
+        this.kirbyNameText = this.add.text(0, 0, kirbyName, {
+            fontFamily: UI_FONT,
+            fontSize: '14px',
+            color: '#fff',
+            backgroundColor: 'rgba(0,0,0,0.25)',
+            padding: { left: 6, right: 6, top: 4, bottom: 4 }
+        }).setOrigin(0.5, 1).setDepth(5).setResolution(UI_TEXT_RES)
+
+        this.waddleNameText = this.add.text(0, 0, waddleName, {
+            fontFamily: UI_FONT,
+            fontSize: '14px',
+            color: '#fff',
+            backgroundColor: 'rgba(0,0,0,0.25)',
+            padding: { left: 6, right: 6, top: 4, bottom: 4 }
+        }).setOrigin(0.5, 1).setDepth(5).setResolution(UI_TEXT_RES)
+
+        this.updateNamePositions()
+
         socket.on('go', (msg) => {
             this.goSprite.setFrame('go3');
             this.goSprite.setVisible(true);
@@ -111,5 +136,20 @@ export class GameScene extends Phaser.Scene {
         socket.on('result', (data) => {
             this.scene.start('ResultScene', data)
         })
+    }
+
+    update() {
+        this.updateNamePositions()
+    }
+
+    updateNamePositions() {
+        if (this.kirb && this.kirbyNameText) {
+            const topY = this.kirb.y - (this.kirb.displayHeight || this.kirb.height || 0)
+            this.kirbyNameText.setPosition(this.kirb.x + (this.kirb.displayWidth || this.kirb.width || 0) / 2, topY - 6)
+        }
+        if (this.waddle && this.waddleNameText) {
+            const topY = this.waddle.y - (this.waddle.displayHeight || this.waddle.height || 0)
+            this.waddleNameText.setPosition(this.waddle.x + (this.waddle.displayWidth || this.waddle.width || 0) / 2, topY - 6)
+        }
     }
 }

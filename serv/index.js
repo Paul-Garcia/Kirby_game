@@ -1,5 +1,13 @@
 const { Server } = require("socket.io")
-const io = new Server(3000, { cors: { origin: '*' } })
+
+const DEBUG = process.env.DEBUG_KIRBY === '1'
+const dlog = (...args) => { if (DEBUG) console.log(...args) }
+
+const io = new Server(3000, {
+  cors: { origin: '*' },
+  // Reduce CPU / latency overhead (especially with websocket)
+  perMessageDeflate: false,
+})
 
 let players = []
 let waitingPlayers = []  // Liste des joueurs en attente pour un matchmaking
@@ -7,19 +15,58 @@ const pendingPairs = []
 const RESEND_INTERVAL = 1000 // renvoie tous les 3s
 
 let gameRooms = {}  // Pour stocker les rooms avec les informations de clic des joueurs
+const GAME_TIMEOUT_MS = 8000
+
+function emitPlayersCount() {
+  io.emit('players_count', { count: players.length })
+}
 
 io.on('connection', (socket) => {
-  console.log(`${socket.id} connecté`)
+  dlog(`${socket.id} connecté`)
+  socket.data.name = null
+
+  // Best-effort: disable Nagle (lower latency for small packets)
+  try {
+    const t = socket.conn?.transport?.socket
+    if (t?.setNoDelay) t.setNoDelay(true)
+    else if (t?._socket?.setNoDelay) t._socket.setNoDelay(true)
+  } catch {}
   
   // Ajoute le joueur à la liste des joueurs connectés
   players.push(socket)
-  
-  // Ajoute le joueur à la liste d'attente pour le matchmaking
-  waitingPlayers.push(socket)
 
-  socket.emit('status', 'waiting to find an opponent')
-  // Matchmaking : une fois qu'il y a deux joueurs dans la file d'attente
-  
+  socket.emit('status', 'connected')
+  socket.emit('players_count', { count: players.length })
+  emitPlayersCount()
+
+  socket.on('get_players_count', () => {
+    socket.emit('players_count', { count: players.length })
+  })
+
+  socket.on('join_queue', ({ name } = {}) => {
+    const normalized = normalizeName(name)
+    if (!normalized.ok) {
+      socket.emit('queue_error', { message: normalized.error })
+      return
+    }
+
+    socket.data.name = normalized.name
+
+    // Si déjà dans une room, on ignore (le client doit d'abord quitter)
+    const roomId = getPlayerRoom(socket)
+    if (roomId) return
+
+    // Déjà dans la queue ?
+    if (waitingPlayers.includes(socket)) return
+
+    waitingPlayers.push(socket)
+    socket.emit('status', 'waiting')
+  })
+
+  socket.on('leave_queue', () => {
+    waitingPlayers = waitingPlayers.filter(s => s !== socket)
+    socket.emit('status', 'idle')
+  })
 
   // Gère le clic du joueur
   socket.on('ready', () => {
@@ -37,11 +84,13 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('status_ready', {
       player1: {
         ready: room.player1.ready,
-        socket: room.player1.socket.id
+        socket: room.player1.socket.id,
+        name: room.player1.name
       },
       player2: {
         ready: room.player2.ready,
-        socket: room.player2.socket.id
+        socket: room.player2.socket.id,
+        name: room.player2.name
       }})
 
       // console.log("iddddd:", socket.id, room.player1.socket.id)
@@ -65,6 +114,27 @@ io.on('connection', (socket) => {
       
           setTimeout(() => {
             room.emit_time = Date.now();
+            room.goTimeNs = process.hrtime.bigint();
+            if (room.resultTimeout) clearTimeout(room.resultTimeout)
+            room.resultTimeout = setTimeout(() => {
+              if (room.res_send) return
+              room.res_send = true
+              io.to(roomId).emit('result', {
+                message: 'result',
+                time: room.emit_time,
+                winnerSocket: getWinner(room),
+                player1: {
+                  time: room.player1.reactionTime,
+                  socket: room.player1.socket.id,
+                  name: room.player1.name
+                },
+                player2: {
+                  time: room.player2.reactionTime,
+                  socket: room.player2.socket.id,
+                  name: room.player2.name
+                }
+              })
+            }, GAME_TIMEOUT_MS)
             io.to(roomId).emit('go', 'go');
           }, delayBeforeGo);
           
@@ -76,15 +146,14 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     players = players.filter(p => p !== socket)
     waitingPlayers = waitingPlayers.filter(p => p !== socket)
+    emitPlayersCount()
     
     // Nettoie la room quand un joueur se déconnecte
     for (let roomId in gameRooms) {
       if (gameRooms[roomId].player1.socket === socket || gameRooms[roomId].player2.socket === socket) {
-        io.to(roomId).emit('status', 'Ton adversaire s’est déconnecté, searching for a new opponent')
-        const opponentSocket = gameRooms[roomId].player1.socket === socket ? gameRooms[roomId].player2.socket : gameRooms[roomId].player1.socket;
-        waitingPlayers.push(opponentSocket)
+        io.to(roomId).emit('status', 'Ton adversaire s’est déconnecté')
         delete gameRooms[roomId]
-        console.log(`Room ${roomId} supprimée à cause de la déconnexion de ${socket.id}`)
+        dlog(`Room ${roomId} supprimée à cause de la déconnexion de ${socket.id}`)
       }
     }
   })
@@ -101,41 +170,52 @@ io.on('connection', (socket) => {
         room.player1.connected = false
       if(room.player2.socket == socket)
         room.player2.connected = false;
-      console.log(`Socket ${socket.id} quitte la room ${roomId}`);
-
-      // Remettre le joueur dans la file d'attente
-      waitingPlayers.push(socket);
+      dlog(`Socket ${socket.id} quitte la room ${roomId}`);
     }
   });
 
   socket.on('finish', () => {
     const roomId = getPlayerRoom(socket);
     const room = gameRooms[roomId];
+    if (!room || !room.goTimeNs || room.res_send) return
+    const nowNs = process.hrtime.bigint()
+    const dtNs = nowNs - room.goTimeNs
+    const reactionMs = Number(dtNs) / 1e6
     if (room.player1.socket === socket && room.player1.finished == false) {
-      room.player1.reactionTime = Date.now() - room.emit_time;
+      room.player1.reactionTimeNs = dtNs
+      room.player1.reactionTime = reactionMs
       room.player1.finished = true;
     } else if (room.player2.socket === socket && room.player2.finished == false) {
-      room.player2.reactionTime = Date.now() - room.emit_time;
+      room.player2.reactionTimeNs = dtNs
+      room.player2.reactionTime = reactionMs
       room.player2.finished = true;
     }
-    if((room.player2.reactionTime && !isNaN(room.player2.reactionTime)) || (room.player1.reactionTime && !isNaN(room.player1.reactionTime))) {
+    if (Number.isFinite(room.player1.reactionTime) || Number.isFinite(room.player2.reactionTime)) {
       room.res_send = true;
+      if (room.resultTimeout) clearTimeout(room.resultTimeout)
       io.to(roomId).emit('result', {
         message: 'result',
         time: room.emit_time,
         winnerSocket: getWinner(room),
         player1: {
           time: room.player1.reactionTime,
-          socket: room.player1.socket.id
+          socket: room.player1.socket.id,
+          name: room.player1.name
         },
         player2: {
           time: room.player2.reactionTime,
-          socket: room.player2.socket.id
+          socket: room.player2.socket.id,
+          name: room.player2.name
         }
       })
     }
   })
 })
+
+// Fallback: broadcast régulièrement (utile si un client arrive en cours de route)
+setInterval(() => {
+  emitPlayersCount()
+}, 2000)
 
 function getPlayerRoom(socket) {
   for (let roomId in gameRooms) {
@@ -147,66 +227,48 @@ function getPlayerRoom(socket) {
 }
 
 function getWinner(room) {
-  let winnerSocket;
-  if(room.player1.reactionTime == null) room.player1.reactionTime = NaN
-  if(room.player2.reactionTime == null) room.player2.reactionTime = NaN
+  const t1 = typeof room.player1.reactionTimeNs === 'bigint' ? room.player1.reactionTimeNs : null
+  const t2 = typeof room.player2.reactionTimeNs === 'bigint' ? room.player2.reactionTimeNs : null
 
-  if (!isNaN(room.player1.reactionTime) && !isNaN(room.player2.reactionTime)) {
-    winnerSocket = room.player1.reactionTime < room.player2.reactionTime ? room.player1.socket.id : room.player2.socket.id;
-  } else if (isNaN(room.player1.reactionTime) && isNaN(room.player2.reactionTime)) {
-    winnerSocket = null;
-  } else if (!isNaN(room.player2.reactionTime)) {
-    winnerSocket = room.player2.socket.id;
-  } else if (!isNaN(room.player1.reactionTime)) {
-    winnerSocket = room.player1.socket.id;
-  } else {
-    winnerSocket = null;
-  }
-  return winnerSocket
+  if (t1 !== null && t2 !== null) return t1 < t2 ? room.player1.socket.id : room.player2.socket.id
+  if (t1 === null && t2 === null) return null
+  if (t1 === null) return room.player2.socket.id
+  return room.player1.socket.id
+}
+
+function normalizeName(name) {
+  if (typeof name !== 'string') return { ok: false, error: 'Pseudo invalide' }
+  const trimmed = name.trim()
+  if (trimmed.length < 2) return { ok: false, error: 'Pseudo trop court (min 2)' }
+  if (trimmed.length > 16) return { ok: false, error: 'Pseudo trop long (max 16)' }
+  // Autorise lettres, chiffres, espace, _ -
+  if (!/^[\p{L}\p{N} _-]+$/u.test(trimmed)) return { ok: false, error: 'Caractères non autorisés' }
+  return { ok: true, name: trimmed }
 }
 
 // Fonction pour afficher les infos des connexions toutes les 2 secondes
-setInterval(async () => {
-  console.log(`\n=== État du serveur toutes les 2 secondes ===`)
-  console.log(`Nombre de joueurs connectés : ${players.length}`)
-  players.forEach((p, index) => {
-    console.log(`Joueur ${index + 1} : Socket ID - ${p.id}`)
-  })
-
-  console.log(`\nNombre de rooms : ${Object.keys(gameRooms).length}`)
-  Object.entries(gameRooms).forEach(([roomId, room], index) => {
-    if((isNaN(room.player1.reactionTime) && isNaN(room.player2.reactionTime)) && room.emit_time != undefined && room.res_send == false) {
-      room.res_send = true;
-      io.to(roomId).emit('result', {
-        message: 'result',
-        time: room.emit_time,
-        winnerSocket: getWinner(room),
-        player1: {
-          time: room.player1.reactionTime,
-          socket: room.player1.socket.id
-        },
-        player2: {
-          time: room.player2.reactionTime,
-          socket: room.player2.socket.id
-        }
-      })
-    }
-    console.log(`Room ${index + 1} - ID: ${roomId} : Time - ${room.emit_time} : Res Send - ${room.res_send}`)
-    console.log(` - Joueur 1 : ${room.player1.socket.id} | ready: ${room.player1.ready} | finished: ${room.player1.finished} | Time - ${room.player1.reactionTime}ms | Connected - ${room.player1.connected}`)
-    console.log(` - Joueur 2 : ${room.player2.socket.id} | ready: ${room.player2.ready} | finished: ${room.player2.finished} | Time - ${room.player2.reactionTime}ms | Connected - ${room.player2.connected}`)
-  })
-  console.log(`============================================\n`)
-}, 500)
+if (DEBUG) {
+  setInterval(() => {
+    console.log(`\n=== État du serveur (DEBUG) ===`)
+    console.log(`Nombre de joueurs connectés : ${players.length}`)
+    console.log(`Nombre de rooms : ${Object.keys(gameRooms).length}`)
+    Object.entries(gameRooms).forEach(([roomId, room], index) => {
+      console.log(`Room ${index + 1} - ID: ${roomId} : Time - ${room.emit_time} : Res Send - ${room.res_send}`)
+      console.log(` - Joueur 1 : ${room.player1.socket.id} | ready: ${room.player1.ready} | finished: ${room.player1.finished} | Time - ${room.player1.reactionTime}ms | Connected - ${room.player1.connected}`)
+      console.log(` - Joueur 2 : ${room.player2.socket.id} | ready: ${room.player2.ready} | finished: ${room.player2.finished} | Time - ${room.player2.reactionTime}ms | Connected - ${room.player2.connected}`)
+    })
+    console.log(`==============================\n`)
+  }, 5000)
+}
 
 
 setInterval(async () => {
+  // Cleanup is not latency-sensitive; keep it light.
   for (const roomId in gameRooms) {
-    const sockets = await io.in(roomId).fetchSockets();
-    if (sockets.length === 0) {
-      delete gameRooms[roomId];
-    }
+    const sockets = await io.in(roomId).fetchSockets()
+    if (sockets.length === 0) delete gameRooms[roomId]
   }
-}, 1000);
+}, 10000);
 
 function checkBothReady(pair) {
   if (pair.player1.ready && pair.player2.ready) {
@@ -222,12 +284,15 @@ function checkBothReady(pair) {
     player1.join(roomId)
     player2.join(roomId)
 
-    console.log(`✅ Match confirmé : ${player1.id} et ${player2.id} dans ${roomId}`)
+    dlog(`✅ Match confirmé : ${player1.id} et ${player2.id} dans ${roomId}`)
 
     gameRooms[roomId] = {
       res_send: false,
-      player1: { socket: player1, ready: false, finished: false, reactionTime: null, connected: true },
-      player2: { socket: player2, ready: false, finished: false, reactionTime: null, connected: true }
+      emit_time: undefined,
+      goTimeNs: undefined,
+      resultTimeout: null,
+      player1: { socket: player1, name: player1.data.name || player1.id.slice(0, 4), ready: false, finished: false, reactionTime: null, reactionTimeNs: null, connected: true },
+      player2: { socket: player2, name: player2.data.name || player2.id.slice(0, 4), ready: false, finished: false, reactionTime: null, reactionTimeNs: null, connected: true }
     }
 
     player1.emit('both_ready', { roomId })
@@ -249,10 +314,12 @@ setInterval(() => {
     pendingPairs.push(pair)
 
     // Fonction d’envoi initial + redondant
-    const sendOpponentFound = (player, opponentId, label) => {
+    const sendOpponentFound = (player, opponent, label) => {
       player.socket.emit('opponent_found', {
         message: 'Prépare-toi... 0/2 ready',
-        opponentId
+        opponentId: opponent.id,
+        opponentName: opponent.data.name || opponent.id.slice(0, 4),
+        youAre: label
       })
 
       // Renvoie toutes les X secondes tant qu’il n’est pas prêt
@@ -261,7 +328,9 @@ setInterval(() => {
           // console.log(`🔁 Renvoi à ${label}`)
           player.socket.emit('opponent_found', {
             message: 'Prépare-toi... 0/2 ready',
-            opponentId
+            opponentId: opponent.id,
+            opponentName: opponent.data.name || opponent.id.slice(0, 4),
+            youAre: label
           })
         } else {
           clearInterval(player.interval)
@@ -269,8 +338,8 @@ setInterval(() => {
       }, RESEND_INTERVAL)
     }
 
-    sendOpponentFound(pair.player1, player2.id, 'player1')
-    sendOpponentFound(pair.player2, player1.id, 'player2')
+    sendOpponentFound(pair.player1, player2, 'player1')
+    sendOpponentFound(pair.player2, player1, 'player2')
 
     // Attente des confirmations
     player1.once('ready_confirmed', () => {

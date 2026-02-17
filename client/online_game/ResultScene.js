@@ -15,8 +15,8 @@ export class ResultScene extends Phaser.Scene {
       this.add.image(0, 0, 'background').setOrigin(0, 0).setDepth(0);
       this.load.spritesheet('foreground', './online_game/foreground_grass.png', {
           frameWidth: 512, // Largeur d'une frame
-          frameHeight: 56, // Hauteur d'une frame
-          endFrame: 4 // Optionnel : nombre de frames
+          frameHeight: 112, // 448px / 4 frames = 112px
+          endFrame: 3
       });
       this.load.image('tie', './online_game/tie.png')
       this.load.atlas('waddle', './online_game/waddle.png', './online_game/waddle.json');
@@ -73,7 +73,7 @@ export class ResultScene extends Phaser.Scene {
       const { player1, player2, winnerSocket } = this.result
       console.log(winnerSocket, player1, player2)
       this.add.image(0, 0, 'background').setOrigin(0, 0).setDepth(0);
-      this.spriteforeground = this.add.sprite(0, 444, 'foreground', 0).setOrigin(0, 1).setDepth(1);
+      this.spriteforeground = this.add.sprite(0, 440, 'foreground', 0).setOrigin(0, 1).setDepth(1);
       this.waddle = this.add.sprite(320, 320, 'waddle', 'waddle1').setOrigin(0, 1).setDepth(2);
       this.kirb = this.add.sprite(120, 320, 'kirb', 'kirb1').setOrigin(0, 1).setDepth(2);
 
@@ -122,13 +122,16 @@ export class ResultScene extends Phaser.Scene {
       console.log(winnerSocket)
       console.log(socket.id)
 
-      const msg = `Time: ${this.result.time}\nPlayer1: ${player1.time}ms\nPlayer2: ${player2.time}ms\n${isWin}`
+      const p1Label = player1?.name ? `${player1.name}` : 'Player1'
+      const p2Label = player2?.name ? `${player2.name}` : 'Player2'
+      const msg = `Time: ${this.result.time}\n${p1Label}: ${player1.time}ms\n${p2Label}: ${player2.time}ms\n${isWin}`
   
       const text = this.add.text(256, 75, msg, {
-        fontSize: '24px',
+        fontFamily: '"Press Start 2P", monospace',
+        fontSize: '18px',
         color: '#fff',
         align: 'center'
-      }).setOrigin(0.5)
+      }).setOrigin(0.5).setResolution(2)
   
       this.input.once('pointerdown', () => {
         socket.emit('back_on_queue')
