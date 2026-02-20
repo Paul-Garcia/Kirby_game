@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kirby-client
+  labels:
+    app: kirby-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kirby-client
+  template:
+    metadata:
+      labels:
+        app: kirby-client
+    spec:
+      containers:
+        - name: client
+          image: kirby-client:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5173
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kirby-client
+  labels:
+    app: kirby-client
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5173
+      targetPort: 5173
+      protocol: TCP
+      name: http
+  selector:
+    app: kirby-client
