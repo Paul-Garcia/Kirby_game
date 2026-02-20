@@ -53,7 +53,7 @@ const config2 = {
 async function boot() {
   await ensureFontsLoaded()
   new Phaser.Game(config)
-  new Phaser.Game(config2)
+new Phaser.Game(config2)
 }
 
 boot()

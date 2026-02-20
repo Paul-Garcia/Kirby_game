@@ -10,14 +10,26 @@ export class GravityScene extends Phaser.Scene {
 
   preload() {
     this.load.image('cube', './gravity/kirb.png') // Remplace par le chemin réel de ton image
-    this.load.image('background', './gravity/back.png') // image pour le fond
-
+    // Charge les 3 backgrounds pour sélection aléatoire
+    this.load.image('background1', './gravity/back.png')
+    // this.load.image('background2', './gravity/back2.png')
+    // this.load.image('background3', './gravity/back3.png')
   }
   
   create() {
-    const bgHeight = this.textures.get('background').getSourceImage().height;
+    // Sélectionne un background aléatoire parmi les 3
+    // const bgIndex = Phaser.Math.Between(1, 3)
+    // const bgKey = `background${bgIndex}`
+    const bgKey = `background${1}`
+    
+    // Couleur en bas : #00f0f8 pour back.png (ancien), #f8b050 pour back2/back3 (nouveaux)
+    // const bottomColor = bgIndex === 2 ? 0x00f0f8 : bgIndex === 3 ? 0xf8b050 : 0x2020b0
+    // this.cameras.main.setBackgroundColor(bottomColor)
+    this.cameras.main.setBackgroundColor(0x2020b0)
+    
+    const bgHeight = this.textures.get(bgKey).getSourceImage().height;
 
-    this.bg = this.add.tileSprite(0, 0, this.scale.width, bgHeight, 'background')
+    this.bg = this.add.tileSprite(0, 0, this.scale.width, bgHeight, bgKey)
       .setOrigin(0, 0);
 
 

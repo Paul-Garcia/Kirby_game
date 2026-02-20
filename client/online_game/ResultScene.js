@@ -1,4 +1,15 @@
 import { socket } from './socket.js'
+import { 
+  loadAllCharacterAssets, 
+  createAllDashAnimations,
+  createAllLoseAnimations,
+  createAllWinAnimations,
+  createCharacterSprite,
+  setCharacterFrame,
+  adjustFlippedSpritePosition,
+  normalizeCharacter,
+  getCharacterConfig
+} from './characterUtils.js'
 
 export class ResultScene extends Phaser.Scene {
     constructor() {
@@ -10,6 +21,7 @@ export class ResultScene extends Phaser.Scene {
     }
 
     preload() {
+      console.log("reload page")
       this.load.image('background', './online_game/background.png')
       this.add.image(0, 0, 'background').setOrigin(0, 0).setDepth(0);
       this.load.spritesheet('foreground', './online_game/foreground_grass.png', {
@@ -18,198 +30,243 @@ export class ResultScene extends Phaser.Scene {
           endFrame: 3
       });
       this.load.image('tie', './online_game/tie.png')
-      this.load.atlas('waddle', './online_game/waddle.png', './online_game/waddle.json');
-      this.load.atlas('kirb', './online_game/kirb.png', './online_game/kirb.json');
+      // Charge tous les assets des personnages de manière modulaire
+      loadAllCharacterAssets(this)
       this.load.atlas('go', './online_game/go.png', './online_game/go.json');
-
-      if (!this.anims.exists('waddle_dash')) {
-        this.anims.create({
-            key: 'waddle_dash',
-            frames: [
-                { key: 'waddle', frame: 'waddle1' },
-                { key: 'waddle', frame: 'waddle2' },
-                { key: 'waddle', frame: 'waddle3' },
-                { key: 'waddle', frame: 'waddle4' }
-            ],
-            frameRate: 10,
-            repeat: -1
-        });
-      }
-
-      if (!this.anims.exists('kirb_dash')) {
-        this.anims.create({
-            key: 'kirb_dash',
-            frames: [
-                { key: 'kirb', frame: 'kirb1' },
-                { key: 'kirb', frame: 'kirb1' },
-                { key: 'kirb', frame: 'kirb1' },
-                { key: 'kirb', frame: 'kirb1' }
-            ],
-            frameRate: 10,
-            repeat: -1
-        });
-      }
-
-      if (!this.anims.exists('go_change')) {
-        this.anims.create({
-            key: 'go_change',
-            frames: [
-                { key: 'go', frame: 'go1' },
-                { key: 'go', frame: 'go2' },
-                { key: 'go', frame: 'go3' },
-            ],
-            frameRate: 10,
-            repeat: -1
-        });
-      }
-      
-      if (!this.anims.exists('scroll')) {
-        this.anims.create({
-            key: 'scroll',
-            frames: this.anims.generateFrameNumbers('foreground', { start: 0, end: 3 }),
-            frameRate: 10,
-            repeat: -1
-        });
-      }
   }
   
-  
-    create() {
 
+    create() {
+      // Crée les animations de course pour tous les personnages de manière modulaire
+      createAllDashAnimations(this)
+      // Crée les animations de défaite pour les personnages qui en ont
+      createAllLoseAnimations(this)
+      // Crée les animations de victoire pour les personnages qui en ont
+      createAllWinAnimations(this)
+
+      this.anims.create({
+          key: 'scroll',
+          frames: this.anims.generateFrameNumbers('foreground', { start: 0, end: 3 }),
+          frameRate: 10,
+          repeat: -1
+      });
+      
       const { player1, player2, winnerSocket } = this.result
+      console.log('[ResultScene] Résultat:', { winnerSocket, player1, player2 })
+      
+      // Récupère les skins réels depuis localStorage avec normalisation modulaire
+      const myCharacter = normalizeCharacter(window.localStorage.getItem('kirby_selected_character'))
+      const oppChar = normalizeCharacter(window.localStorage.getItem('kirby_opponent_character'))
+      
+      console.log('[ResultScene] Skins - Nous:', myCharacter, 'Adversaire:', oppChar)
+      // IMPORTANT: Les deux joueurs peuvent avoir le même skin, c'est géré par le système modulaire
+      
+      // Détermine qui est player1 et player2 selon notre socket.id
+      const iAmPlayer1 = player1?.socket === socket.id
+      const p1Character = iAmPlayer1 ? myCharacter : oppChar
+      const p2Character = iAmPlayer1 ? oppChar : myCharacter
+      
+      console.log('[ResultScene] P1 skin:', p1Character, 'P2 skin:', p2Character, '(Je suis P1:', iAmPlayer1, ')')
+      
       this.add.image(0, 0, 'background').setOrigin(0, 0).setDepth(0);
-      this.spriteforeground = this.add.sprite(0, 440, 'foreground', 0).setOrigin(0, 1).setDepth(1);
-      this.waddle = this.add.sprite(320, 320, 'waddle', 'waddle1').setOrigin(0, 1).setDepth(2);
-      this.kirb = this.add.sprite(120, 320, 'kirb', 'kirb1').setOrigin(0, 1).setDepth(2);
+      this.spriteforeground = this.add.sprite(0, 444, 'foreground', 0).setOrigin(0, 1).setDepth(1);
+      
+      // Positions symétriques par rapport au centre de l'écran
+      const centerX = 256 // 512 / 2
+      const distanceFromCenter = 136 // Distance symétrique du centre
+      const leftX = centerX - distanceFromCenter // 120 (gauche)
+      const rightX = centerX + distanceFromCenter // 392 (droite)
+      
+      // Crée les sprites selon les vrais skins de manière modulaire
+      // Player1 toujours à gauche, Player2 toujours à droite (positions symétriques)
+      // IMPORTANT: Les deux joueurs peuvent avoir le même skin, c'est géré automatiquement
+      this.p1Sprite = createCharacterSprite(this, p1Character, leftX, 320, false)
+      this.p2Sprite = createCharacterSprite(this, p2Character, rightX, 320, true, rightX)
+      
+      console.log(`[ResultScene] P1Sprite (${p1Character}) créé à x:`, leftX)
+      console.log(`[ResultScene] P2Sprite (${p2Character}) créé à x:`, this.p2Sprite.x, '(largeur:', this.p2Sprite.displayWidth, ')')
 
       if (winnerSocket != null) {
-        this.tweens.add({
-          targets: this.waddle,
-          x: 120,
-          duration: 500,
-          ease: 'Power2'
-        });
-        this.tweens.add({
-          targets: this.kirb,
-          x: 320,
-          duration: 500,
-          ease: 'Power2'
-        });
+        // Détermine qui est le gagnant et qui est le perdant
+        const winnerIsP1 = String(winnerSocket) === String(player1?.socket)
+        const p1Won = winnerIsP1
+        const p2Won = !winnerIsP1
+        
+        console.log('[ResultScene] === Détermination victoire/défaite ===')
+        console.log('[ResultScene] P1 a gagné:', p1Won, 'P2 a gagné:', p2Won)
+        
+        // Change les frames selon la victoire/défaite de manière modulaire
+        // Pour les animations de victoire/défaite, on attendra la fin du déplacement
+        if (this.p1Sprite) {
+          const config = getCharacterConfig(p1Character)
+          if (p1Won) {
+            // Pour la victoire, si pas d'animation, on définit la frame maintenant
+            if (!config || !config.winFrames) {
+              setCharacterFrame(this.p1Sprite, p1Character, 'win')
+            } else {
+              // On définit juste la frame idle pour l'instant, l'animation sera jouée après le déplacement
+              this.p1Sprite.setFrame(config.frames.idle)
+            }
+          } else {
+            // Pour la défaite, si pas d'animation, on définit la frame maintenant
+            if (!config || !config.loseFrames) {
+              setCharacterFrame(this.p1Sprite, p1Character, 'lose')
+            } else {
+              // On définit juste la frame idle pour l'instant, l'animation sera jouée après le déplacement
+              this.p1Sprite.setFrame(config.frames.idle)
+            }
+          }
+        }
+        
+        if (this.p2Sprite) {
+          const config = getCharacterConfig(p2Character)
+          if (p2Won) {
+            // Pour la victoire, si pas d'animation, on définit la frame maintenant
+            if (!config || !config.winFrames) {
+              setCharacterFrame(this.p2Sprite, p2Character, 'win')
+            } else {
+              // On définit juste la frame idle pour l'instant, l'animation sera jouée après le déplacement
+              this.p2Sprite.setFrame(config.frames.idle)
+            }
+          } else {
+            // Pour la défaite, si pas d'animation, on définit la frame maintenant
+            if (!config || !config.loseFrames) {
+              setCharacterFrame(this.p2Sprite, p2Character, 'lose')
+            } else {
+              // On définit juste la frame idle pour l'instant, l'animation sera jouée après le déplacement
+              this.p2Sprite.setFrame(config.frames.idle)
+            }
+          }
+          // Réajuste la position X après changement de frame (la largeur peut changer)
+          adjustFlippedSpritePosition(this.p2Sprite, rightX)
+        }
+        
+        // Les deux sprites se déplacent symétriquement jusqu'à la position initiale de l'autre
+        // P1 (gauche) va jusqu'à la position initiale de P2 (droite)
+        // P2 (droite) va jusqu'à la position initiale de P1 (gauche)
+        const p1TargetX = rightX // P1 va jusqu'à la position initiale de P2
+        const p2TargetX = leftX // P2 va jusqu'à la position initiale de P1
+        
+        console.log('[ResultScene] === Déplacement symétrique des deux sprites ===')
+        console.log('[ResultScene] P1 (gauche) part de:', leftX, '→ va vers:', p1TargetX)
+        console.log('[ResultScene] P2 (droite) part de:', rightX, '→ va vers:', p2TargetX)
+        
+        // P1 (gauche) se déplace vers la droite jusqu'à la position initiale de P2
+        if (this.p1Sprite) {
+          this.tweens.add({
+            targets: this.p1Sprite,
+            x: p1TargetX,
+            duration: 500,
+            ease: 'Power2',
+            onStart: () => {
+              console.log('[ResultScene] ✅ Tween démarré pour P1 (gauche)')
+            },
+            onComplete: () => {
+              console.log('[ResultScene] ✅ Tween P1 terminé, position finale:', this.p1Sprite.x)
+              // Déclenche l'animation de victoire/défaite à la fin du déplacement
+              setCharacterFrame(this.p1Sprite, p1Character, p1Won ? 'win' : 'lose')
+            }
+          });
+        }
+        
+        // P2 (droite, flipé) se déplace vers la gauche jusqu'à la position initiale de P1
+        // Ajuste la position cible pour tenir compte de la largeur du sprite flipé
+        if (this.p2Sprite) {
+          const p2TargetXAdjusted = p2TargetX - this.p2Sprite.displayWidth
+          this.tweens.add({
+            targets: this.p2Sprite,
+            x: p2TargetXAdjusted,
+            duration: 500,
+            ease: 'Power2',
+            onStart: () => {
+              console.log('[ResultScene] ✅ Tween démarré pour P2 (droite)')
+            },
+            onComplete: () => {
+              console.log('[ResultScene] ✅ Tween P2 terminé, position finale:', this.p2Sprite.x)
+              // Déclenche l'animation de victoire/défaite à la fin du déplacement
+              setCharacterFrame(this.p2Sprite, p2Character, p2Won ? 'win' : 'lose')
+              // Réajuste la position X après changement de frame/animation (la largeur peut changer)
+              // Utilise p2TargetX (position finale) au lieu de rightX (position initiale)
+              adjustFlippedSpritePosition(this.p2Sprite, p2TargetX)
+            }
+          });
+        }
       } else {
+        // Égalité : les deux vont au centre puis disparaissent
         this.tweens.add({
-          targets: this.waddle,
+          targets: this.p1Sprite,
           x: 256,
           duration: 100,
           ease: 'Power2',
-          onComplete: () => { this.waddle.setVisible(false);}
+          onComplete: () => { this.p1Sprite.setVisible(false); }
         });
+        // Ajuste la position cible pour tenir compte de la largeur du sprite flipé
+        const p2CenterXAdjusted = 256 - this.p2Sprite.displayWidth
         this.tweens.add({
-          targets: this.kirb,
-          x: 200,
+          targets: this.p2Sprite,
+          x: p2CenterXAdjusted,
           duration: 100,
           ease: 'Power2',
-          onComplete: () => { this.kirb.setVisible(false); this.add.image(256, 320, 'tie').setOrigin(0.5, 1).setDepth(2);}
+          onComplete: () => { 
+            this.p2Sprite.setVisible(false)
+            this.add.image(256, 320, 'tie').setOrigin(0.5, 1).setDepth(2)
+          }
         });
-      }
-
-      if(winnerSocket != null && winnerSocket == player1.socket) {
-        this.kirb.setFrame('kirb2');
-        this.waddle.setFrame('waddle4');
-      } else if (winnerSocket != null && winnerSocket == player2.socket) {
-        this.kirb.setFrame('kirb4');
-        this.waddle.setFrame('waddle2');
       }
       this.spriteforeground.play('scroll');      
   
-      const UI_FONT = '"Press Start 2P", monospace'
-      const UI_RES = 2
+      const isWin = winnerSocket === socket.id
+      const isTie = winnerSocket === null
 
-      const meId = socket.id
-      const isTie = winnerSocket === null || winnerSocket === undefined
-      const isWin = !isTie && winnerSocket === meId
-      const title = isTie ? 'EGALITE' : (isWin ? 'VICTOIRE' : 'DEFAITE')
-      const titleColor = isTie ? '#ffd54a' : (isWin ? '#66ff8a' : '#ff6a6a')
-
-      const p1Name = player1?.name || 'Player1'
-      const p2Name = player2?.name || 'Player2'
-
-      const p1Time = Number(player1?.time)
-      const p2Time = Number(player2?.time)
-      const p1TimeOk = Number.isFinite(p1Time)
-      const p2TimeOk = Number.isFinite(p2Time)
-      const p1TimeStr = p1TimeOk ? `${p1Time.toFixed(1)} ms` : '—'
-      const p2TimeStr = p2TimeOk ? `${p2Time.toFixed(1)} ms` : '—'
-
-      const winnerIsP1 = !isTie && winnerSocket === player1?.socket
-      const winnerIsP2 = !isTie && winnerSocket === player2?.socket
-
-      const leftLabel = player1?.socket === meId ? 'TOI' : 'ADVERSAIRE'
-      const rightLabel = player2?.socket === meId ? 'TOI' : 'ADVERSAIRE'
-
-      // Panneau lisible
-      const panelX = 36
-      const panelY = 22
-      const panelW = 512 - panelX * 2
-      const panelH = 170
-      const panel = this.add.graphics().setDepth(10)
-      panel.fillStyle(0x000000, 0.55)
-      panel.lineStyle(2, 0xffffff, 0.22)
-      panel.fillRoundedRect(panelX, panelY, panelW, panelH, 14)
-      panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 14)
-
-      const titleText = this.add.text(256, panelY + 18, title, {
-        fontFamily: UI_FONT,
-        fontSize: '24px',
-        color: titleColor,
-        align: 'center'
-      }).setOrigin(0.5, 0).setDepth(11).setResolution(UI_RES)
-
-      // Petite ligne d'explication
-      const subtitle = isTie ? 'Personne ne gagne' : (isWin ? 'Tu as ete le plus rapide' : 'Ton adversaire a ete plus rapide')
-      this.add.text(256, panelY + 56, subtitle, {
-        fontFamily: UI_FONT,
-        fontSize: '12px',
-        color: '#ffffff',
-        align: 'center',
-        wordWrap: { width: panelW - 32, useAdvancedWrap: true }
-      }).setOrigin(0.5, 0).setDepth(11).setResolution(UI_RES)
-
-      // Tableau (2 lignes)
-      const rowY1 = panelY + 92
-      const rowY2 = panelY + 122
-      const colLeftX = panelX + 18
-      const colRightX = panelX + panelW - 18
-
-      const rowStyle = {
-        fontFamily: UI_FONT,
-        fontSize: '12px',
-        color: '#ffffff'
+      const p1Label = player1?.name ? `${player1.name}` : 'Player1'
+      const p2Label = player2?.name ? `${player2.name}` : 'Player2'
+      
+      const p1Time = player1.time || 'N/A'
+      const p2Time = player2.time || 'N/A'
+      
+      // Fond semi-transparent pour améliorer la lisibilité
+      const bgRect = this.add.rectangle(256, 222, 480, 200, 0x000000, 0.7)
+        .setOrigin(0.5)
+        .setDepth(10)
+      
+      // Titre du résultat (plus grand et coloré)
+      let resultText, resultColor
+      if (isTie) {
+        resultText = '🟰 ÉGALITÉ'
+        resultColor = '#FFD700' // Or
+      } else if (isWin) {
+        resultText = '✅ VICTOIRE !'
+        resultColor = '#00FF00' // Vert
+      } else {
+        resultText = '❌ DÉFAITE'
+        resultColor = '#FF4444' // Rouge
       }
-
-      const p1Prefix = winnerIsP1 ? '★ ' : '  '
-      const p2Prefix = winnerIsP2 ? '★ ' : '  '
-
-      this.add.text(colLeftX, rowY1, `${p1Prefix}${leftLabel}: ${p1Name}`, rowStyle)
-        .setOrigin(0, 0).setDepth(11).setResolution(UI_RES)
-      this.add.text(colRightX, rowY1, p1TimeStr, {
-        ...rowStyle,
-        color: winnerIsP1 ? '#66ff8a' : '#ffffff'
-      }).setOrigin(1, 0).setDepth(11).setResolution(UI_RES)
-
-      this.add.text(colLeftX, rowY2, `${p2Prefix}${rightLabel}: ${p2Name}`, rowStyle)
-        .setOrigin(0, 0).setDepth(11).setResolution(UI_RES)
-      this.add.text(colRightX, rowY2, p2TimeStr, {
-        ...rowStyle,
-        color: winnerIsP2 ? '#66ff8a' : '#ffffff'
-      }).setOrigin(1, 0).setDepth(11).setResolution(UI_RES)
-
-      // Hint "rejouer"
-      this.add.text(256, panelY + panelH - 18, 'Clique pour rejouer', {
-        fontFamily: UI_FONT,
-        fontSize: '12px',
-        color: '#d7e6ff',
+      
+      const titleText = this.add.text(256, 140, resultText, {
+        fontFamily: '"Press Start 2P", monospace',
+        fontSize: '20px',
+        color: resultColor,
+        align: 'center',
+        fontStyle: 'bold'
+      }).setOrigin(0.5).setResolution(2).setDepth(11)
+      
+      // Scores des joueurs (plus lisible)
+      const scoresY = 180
+      const scoresText = this.add.text(256, scoresY, `${p1Label}: ${p1Time}ms\n${p2Label}: ${p2Time}ms`, {
+        fontFamily: '"Press Start 2P", monospace',
+        fontSize: '14px',
+        color: '#FFFFFF',
+        align: 'center',
+        lineSpacing: 8
+      }).setOrigin(0.5).setResolution(2).setDepth(11)
+      
+      // Instruction en bas
+      const instructionText = this.add.text(256, 280, 'Clique pour continuer', {
+        fontFamily: '"Press Start 2P", monospace',
+        fontSize: '10px',
+        color: '#CCCCCC',
         align: 'center'
-      }).setOrigin(0.5, 0.5).setDepth(11).setResolution(UI_RES)
+      }).setOrigin(0.5).setResolution(2).setDepth(11)
   
       this.input.once('pointerdown', () => {
         socket.emit('back_on_queue')

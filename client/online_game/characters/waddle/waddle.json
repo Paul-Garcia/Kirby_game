@@ -1,0 +1,13 @@
+{
+    "frames": {
+        "waddle1": { "frame": { "x": 288, "y": 0, "w": 64, "h": 64 } },
+        "waddle2": { "frame": { "x": 176, "y": 0, "w": 112, "h": 64 } },
+        "waddle3": { "frame": { "x": 90, "y": 0, "w": 86, "h": 64 } },
+        "waddle4": { "frame": { "x": 0, "y": 0, "w": 90, "h": 64 } }
+    },
+    "meta": {
+        "image": "waddle.png",
+        "size": { "w": 352, "h": 64 },
+        "scale": "1"
+    }
+}

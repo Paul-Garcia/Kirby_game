@@ -23,7 +23,7 @@ function renderPseudo() {
   const el = document.getElementById('hud-pseudo')
   if (!el) return
   const name = getPlayerName()
-  el.textContent = `Pseudo: ${name || '-'}`
+  el.textContent = `Nickname: ${name || '-'}`
 }
 
 function setOnlineCount(count) {

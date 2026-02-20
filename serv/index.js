@@ -43,7 +43,12 @@ io.on('connection', (socket) => {
     socket.emit('players_count', { count: players.length })
   })
 
-  socket.on('join_queue', ({ name } = {}) => {
+  socket.on('join_queue', ({ name, character } = {}) => {
+    console.log(`[SERVEUR] join_queue reçu de ${socket.id}`)
+    console.log(`[SERVEUR] name:`, name)
+    console.log(`[SERVEUR] character reçu:`, character)
+    console.log(`[SERVEUR] Type de character:`, typeof character)
+    
     const normalized = normalizeName(name)
     if (!normalized.ok) {
       socket.emit('queue_error', { message: normalized.error })
@@ -51,6 +56,11 @@ io.on('connection', (socket) => {
     }
 
     socket.data.name = normalized.name
+    // Stocke le skin choisi (kirby ou waddle)
+    socket.data.character = character || 'kirby'
+    console.log(`[SERVEUR] socket.data.character stocké:`, socket.data.character)
+    console.log(`[SERVEUR] socket.data complet:`, socket.data)
+    dlog(`Joueur ${socket.id} rejoint la queue avec skin: ${socket.data.character}`)
 
     // Si déjà dans une room, on ignore (le client doit d'abord quitter)
     const roomId = getPlayerRoom(socket)
@@ -250,13 +260,13 @@ function normalizeName(name) {
 if (DEBUG) {
   setInterval(() => {
     console.log(`\n=== État du serveur (DEBUG) ===`)
-    console.log(`Nombre de joueurs connectés : ${players.length}`)
+  console.log(`Nombre de joueurs connectés : ${players.length}`)
     console.log(`Nombre de rooms : ${Object.keys(gameRooms).length}`)
-    Object.entries(gameRooms).forEach(([roomId, room], index) => {
-      console.log(`Room ${index + 1} - ID: ${roomId} : Time - ${room.emit_time} : Res Send - ${room.res_send}`)
-      console.log(` - Joueur 1 : ${room.player1.socket.id} | ready: ${room.player1.ready} | finished: ${room.player1.finished} | Time - ${room.player1.reactionTime}ms | Connected - ${room.player1.connected}`)
-      console.log(` - Joueur 2 : ${room.player2.socket.id} | ready: ${room.player2.ready} | finished: ${room.player2.finished} | Time - ${room.player2.reactionTime}ms | Connected - ${room.player2.connected}`)
-    })
+  Object.entries(gameRooms).forEach(([roomId, room], index) => {
+    console.log(`Room ${index + 1} - ID: ${roomId} : Time - ${room.emit_time} : Res Send - ${room.res_send}`)
+    console.log(` - Joueur 1 : ${room.player1.socket.id} | ready: ${room.player1.ready} | finished: ${room.player1.finished} | Time - ${room.player1.reactionTime}ms | Connected - ${room.player1.connected}`)
+    console.log(` - Joueur 2 : ${room.player2.socket.id} | ready: ${room.player2.ready} | finished: ${room.player2.finished} | Time - ${room.player2.reactionTime}ms | Connected - ${room.player2.connected}`)
+  })
     console.log(`==============================\n`)
   }, 5000)
 }
@@ -313,23 +323,39 @@ setInterval(() => {
 
     pendingPairs.push(pair)
 
-    // Fonction d’envoi initial + redondant
+    // Fonction d'envoi initial + redondant
     const sendOpponentFound = (player, opponent, label) => {
-      player.socket.emit('opponent_found', {
+      console.log(`[SERVEUR] sendOpponentFound appelé pour ${player.socket.id}`)
+      console.log(`[SERVEUR] opponent.id:`, opponent.id)
+      console.log(`[SERVEUR] opponent.data:`, opponent.data)
+      console.log(`[SERVEUR] opponent.data.character:`, opponent.data.character)
+      console.log(`[SERVEUR] Type de opponent.data.character:`, typeof opponent.data.character)
+      
+      const oppChar = opponent.data.character || 'kirby'
+      console.log(`[SERVEUR] oppChar final:`, oppChar)
+      
+      const payload = {
         message: 'Prépare-toi... 0/2 ready',
         opponentId: opponent.id,
         opponentName: opponent.data.name || opponent.id.slice(0, 4),
+        opponentCharacter: oppChar, // Envoie le skin de l'adversaire
         youAre: label
-      })
+      }
+      console.log(`[SERVEUR] Payload envoyé à ${player.socket.id}:`, JSON.stringify(payload, null, 2))
 
-      // Renvoie toutes les X secondes tant qu’il n’est pas prêt
+      dlog(`Envoi opponent_found à ${player.socket.id}: adversaire ${opponent.id} avec skin ${oppChar}`)
+      player.socket.emit('opponent_found', payload)
+
+      // Renvoie toutes les X secondes tant qu'il n'est pas prêt
       player.interval = setInterval(() => {
         if (!player.ready) {
-          // console.log(`🔁 Renvoi à ${label}`)
+          const oppCharResend = opponent.data.character || 'kirby'
+          console.log(`[SERVEUR] 🔁 Renvoi opponent_found à ${player.socket.id}, opponentCharacter:`, oppCharResend)
           player.socket.emit('opponent_found', {
             message: 'Prépare-toi... 0/2 ready',
             opponentId: opponent.id,
             opponentName: opponent.data.name || opponent.id.slice(0, 4),
+            opponentCharacter: oppCharResend, // Envoie le skin de l'adversaire
             youAre: label
           })
         } else {

@@ -1,4 +1,12 @@
 import { socket, refreshHud } from './socket.js'
+import { 
+  loadAllCharacterAssets, 
+  initializeBanners, 
+  setupBanner, 
+  normalizeCharacter, 
+  getCharacterConfig,
+  getAvailableCharacters
+} from './characterUtils.js'
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -10,8 +18,10 @@ export class MenuScene extends Phaser.Scene {
     this.player2 = false
     this.load.image('background', './online_game/background.png')
     this.load.image('empty_banner', './online_game/empty_banner.png')
-    this.load.spritesheet('kirby_banner', './online_game/kirby_banner.png', {frameWidth: 512,frameHeight: 92})
-    this.load.spritesheet('waddle_banner', './online_game/waddle_banner.png', {frameWidth: 512,frameHeight: 92})
+    
+    // Charge tous les assets des personnages de manière modulaire
+    loadAllCharacterAssets(this)
+    
     this.load.spritesheet('foreground', './online_game/foreground_grass.png', {
       frameWidth: 512, // Largeur d'une frame
       frameHeight: 112, // 448px / 4 frames = 112px
@@ -38,16 +48,22 @@ export class MenuScene extends Phaser.Scene {
         repeat: -1
       })
     }
-    this.spriteforeground = this.add.sprite(0, 450, 'foreground', 0).setOrigin(0, 1).setDepth(0.5)
+    this.spriteforeground = this.add.sprite(0, 444, 'foreground', 0).setOrigin(0, 1).setDepth(0.5)
     this.spriteforeground.play('scroll')
 
     // Barres noires (à cacher dans le menu, à afficher seulement quand un adversaire est trouvé)
     this.topBars = this.add.image(0, 0, 'empty_banner').setOrigin(0, 0).setDepth(1)
     this.bottomBars = this.add.image(0, 444, 'empty_banner').setOrigin(0, 1).setDepth(1)
-    this.kirbyBanner = this.add.sprite(-250, 0, 'kirby_banner').setOrigin(0, 0).setDepth(2)
-    this.WaddleBanner = this.add.sprite(250, 444, 'waddle_banner').setOrigin(0, 1).setDepth(2)
+    
+    // Initialise toutes les bannières de manière modulaire
+    const banners = initializeBanners(this)
+    this.characterBanners = banners.my
+    this.opponentBanners = banners.opponent
 
     this.playerName = window.localStorage.getItem('kirby_player_name') || ''
+    // Récupère le personnage choisi (normalisé avec le système modulaire)
+    const storedCharacter = window.localStorage.getItem('kirby_selected_character')
+    this.selectedCharacter = normalizeCharacter(storedCharacter)
     const UI_FONT = '"Press Start 2P", monospace'
     const UI_TEXT_RES = 2
 
@@ -74,7 +90,8 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setResolution(UI_TEXT_RES)
 
     // Pseudos au-dessus des bannières (affichés uniquement quand un adversaire est trouvé)
-    this.kirbyNameText = this.add.text(512 - 10, 10, '', {
+    // Notre nom en haut, adversaire en bas
+    this.myNameText = this.add.text(512 - 10, 10, '', {
       fontFamily: UI_FONT,
       fontSize: '14px',
       color: '#fff',
@@ -82,7 +99,7 @@ export class MenuScene extends Phaser.Scene {
       padding: { left: 6, right: 6, top: 4, bottom: 4 }
     }).setOrigin(1, 0).setDepth(3).setVisible(false).setResolution(UI_TEXT_RES)
 
-    this.waddleNameText = this.add.text(10, 444 - 10, '', {
+    this.opponentNameText = this.add.text(10, 444 - 10, '', {
       fontFamily: UI_FONT,
       fontSize: '14px',
       color: '#fff',
@@ -90,10 +107,14 @@ export class MenuScene extends Phaser.Scene {
       padding: { left: 6, right: 6, top: 4, bottom: 4 }
     }).setOrigin(0, 1).setDepth(3).setVisible(false).setResolution(UI_TEXT_RES)
 
-    this.playBtn = this.makeButton(256, 250, 'Jouer', () => this.onPlay())
-    this.nameBtn = this.makeButton(256, 300, 'Changer pseudo', () => this.openNameInput())
-    this.cancelBtn = this.makeButton(256, 290, 'Annuler', () => this.onCancel())
+    this.playBtn = this.makeButton(256, 190, 'Play', () => this.onPlay())
+    this.nameBtn = this.makeButton(256, 240, 'Change nickname', () => this.openNameInput())
+    this.characterBtn = this.makeButton(256, 290, this.getCharacterButtonLabel(), () => this.toggleCharacter())
+    this.cancelBtn = this.makeButton(256, 230, 'Cancel', () => this.onCancel())
     this.cancelBtn.setVisible(false)
+    
+    // Affiche la bannière du personnage choisi en haut du menu
+    this.showMainMenuBanner()
 
     this.input.on('pointerdown', () => {
       if (this.currentPhase === 'found') {
@@ -102,37 +123,51 @@ export class MenuScene extends Phaser.Scene {
     })
 
     socket.on('queue_error', ({ message } = {}) => {
-      this.statusText.setText(message || 'Erreur pseudo')
+      this.statusText.setText(message || 'Nickname error')
       this.setPhase('main_menu')
     })
 
-    socket.on('opponent_found', ({ opponentName, youAre } = {}) => {
-      this.statusText.setText(`Clique pour te mettre prêt\nAdversaire : ${opponentName || '???'}`)
-      this.setPhase('found')
-
-      // Place les pseudos dès qu'on connaît l'adversaire
-      const me = this.playerName || 'Moi'
+    socket.on('opponent_found', ({ opponentName, opponentCharacter, youAre } = {}) => {
+      console.log('=== RECEPTION opponent_found ===')
+      console.log('Données brutes reçues:', { opponentName, opponentCharacter, youAre })
+      console.log('Type de opponentCharacter:', typeof opponentCharacter, 'Valeur:', opponentCharacter)
+      console.log('opponentCharacter est défini?', opponentCharacter !== undefined)
+      console.log('opponentCharacter est null?', opponentCharacter === null)
+      console.log('opponentCharacter est vide?', opponentCharacter === '')
+      
+      this.statusText.setText(`Click to get ready\nOpponent: ${opponentName || '???'}`)
+      
+      // Stocke qui nous sommes et le skin de l'adversaire
+      window.localStorage.setItem('kirby_you_are', youAre || '')
+      const myCharacter = normalizeCharacter(this.selectedCharacter)
+      
+      // Normalise le skin de l'adversaire de manière modulaire
+      let oppCharacter = normalizeCharacter(opponentCharacter)
+      
+      console.log('Skins finaux - Nous:', myCharacter, 'Adversaire:', oppCharacter)
+      // IMPORTANT: Les deux joueurs peuvent avoir le même skin, c'est géré par le système modulaire
+      console.log('Stockage dans localStorage: kirby_opponent_character =', oppCharacter)
+      window.localStorage.setItem('kirby_opponent_character', oppCharacter)
+      console.log('================================')
+      
+      // Place les pseudos : notre nom en haut, adversaire en bas
+      const me = this.playerName || 'Me'
       const opp = opponentName || '???'
-      if (youAre === 'player1') {
-        this.kirbyNameText.setText(me)
-        this.waddleNameText.setText(opp)
-      } else if (youAre === 'player2') {
-        this.kirbyNameText.setText(opp)
-        this.waddleNameText.setText(me)
-      } else {
-        // fallback : on ne sait pas qui est qui
-        this.kirbyNameText.setText(me)
-        this.waddleNameText.setText(opp)
-      }
-
-      // Stocke pour l'affichage en GameScene
-      window.localStorage.setItem('kirby_kirby_name', this.kirbyNameText.text || '')
-      window.localStorage.setItem('kirby_waddle_name', this.waddleNameText.text || '')
+      this.myNameText.setText(me)
+      this.opponentNameText.setText(opp)
+      
+      // Stocke pour GameScene
+      window.localStorage.setItem('kirby_my_name', me)
+      window.localStorage.setItem('kirby_opponent_name', opp)
+      window.localStorage.setItem('kirby_my_character', myCharacter)
+      
+      // Affiche les bannières
+      this.setPhase('found')
     })
 
     socket.on('status', (msg) => {
       if (msg === 'waiting') {
-        this.statusText.setText('Recherche d’un adversaire...')
+        this.statusText.setText('Searching for an opponent...')
         this.setPhase('matchmaking')
       } else if (msg === 'idle' || msg === 'connected') {
         this.statusText.setText('')
@@ -150,12 +185,24 @@ export class MenuScene extends Phaser.Scene {
       this.player2 = !!data?.player2?.ready
 
       // Mise à jour "source of truth" avec les noms remontés par le serveur
-      if (data?.player1?.name) this.kirbyNameText.setText(data.player1.name)
-      if (data?.player2?.name) this.waddleNameText.setText(data.player2.name)
-
-      if (this.currentPhase === 'found') {
-        window.localStorage.setItem('kirby_kirby_name', this.kirbyNameText.text || '')
-        window.localStorage.setItem('kirby_waddle_name', this.waddleNameText.text || '')
+      const youAre = window.localStorage.getItem('kirby_you_are') || ''
+      
+      if (youAre === 'player1') {
+        // Nous = player1, adversaire = player2
+        const myName = data?.player1?.name || this.playerName || 'Me'
+        const oppName = data?.player2?.name || 'Opponent'
+        this.myNameText.setText(myName)
+        this.opponentNameText.setText(oppName)
+        window.localStorage.setItem('kirby_my_name', myName)
+        window.localStorage.setItem('kirby_opponent_name', oppName)
+      } else if (youAre === 'player2') {
+        // Nous = player2, adversaire = player1
+        const myName = data?.player2?.name || this.playerName || 'Me'
+        const oppName = data?.player1?.name || 'Opponent'
+        this.myNameText.setText(myName)
+        this.opponentNameText.setText(oppName)
+        window.localStorage.setItem('kirby_my_name', myName)
+        window.localStorage.setItem('kirby_opponent_name', oppName)
       }
     })
 
@@ -171,52 +218,78 @@ export class MenuScene extends Phaser.Scene {
     if (this.currentPhase === 'found') {
       socket.emit('ready_confirmed')
    
-      // Gérer la bannière de Kirby
-      if (this.player1) {
-        if (this.kirbyBanner.x !== 0) {
-          this.tweens.add({
-            targets: this.kirbyBanner,
-            x: 0,
-            duration: 500,
-            ease: 'Power2'
-          });
-        }
-      } else {
-        if (this.kirbyBanner.x !== -250) {
-          this.tweens.add({
-            targets: this.kirbyBanner,
-            x: -250,
-            duration: 500,
-            ease: 'Power2'
-          });
+      const youAre = window.localStorage.getItem('kirby_you_are') || ''
+      const myCharacter = normalizeCharacter(this.selectedCharacter)
+      const opponentCharacter = normalizeCharacter(
+        window.localStorage.getItem('kirby_opponent_character'),
+        myCharacter
+      )
+      
+      // Notre état ready
+      const myReady = (youAre === 'player1' && this.player1) || (youAre === 'player2' && this.player2)
+      // État ready de l'adversaire
+      const opponentReady = (youAre === 'player1' && this.player2) || (youAre === 'player2' && this.player1)
+      
+      // NOTRE bannière (en haut) bouge selon notre état ready
+      const myBanner = this.characterBanners[myCharacter]
+      
+      if (myBanner) {
+        if (myReady) {
+          // Prêt : bannière en position normale (x=0)
+          if (myBanner.x !== 0) {
+            this.tweens.add({
+              targets: myBanner,
+              x: 0,
+              duration: 500,
+              ease: 'Power2'
+            });
+          }
+        } else {
+          // Pas prêt : bannière toujours à gauche (x=-250), peu importe le sprite
+          const targetX = -250
+          if (myBanner.x !== targetX) {
+            this.tweens.add({
+              targets: myBanner,
+              x: targetX,
+              duration: 500,
+              ease: 'Power2'
+            });
+          }
         }
       }
-  
-      // Gérer la bannière de Waddle
-      if (this.player2) {
-        if (this.WaddleBanner.x !== 0) {
-          this.tweens.add({
-            targets: this.WaddleBanner,
-            x: 0,
-            duration: 500,
-            ease: 'Power2'
-          });
-        }
-      } else {
-        if (this.WaddleBanner.x !== 250) {
-          this.tweens.add({
-            targets: this.WaddleBanner,
-            x: 250,
-            duration: 500,
-            ease: 'Power2'
-          });
+      
+      // Bannière de L'ADVERSAIRE (en bas) bouge selon son état ready
+      const opponentBanner = this.opponentBanners[opponentCharacter]
+      
+      if (opponentBanner) {
+        if (opponentReady) {
+          // Adversaire prêt : bannière en position normale (x=0)
+          if (opponentBanner.x !== 0) {
+            this.tweens.add({
+              targets: opponentBanner,
+              x: 0,
+              duration: 500,
+              ease: 'Power2'
+            });
+          }
+        } else {
+          // Adversaire pas prêt : bannière décalée à droite (x=250), peu importe le sprite
+          const targetX = 250
+          if (opponentBanner.x !== targetX) {
+            this.tweens.add({
+              targets: opponentBanner,
+              x: targetX,
+              duration: 500,
+              ease: 'Power2'
+            });
+          }
         }
       }
     }
   }
 
   getNameLabel() {
-    return this.playerName ? `Pseudo : ${this.playerName}` : 'Pseudo : (non défini)'
+    return this.playerName ? `Nickname: ${this.playerName}` : 'Nickname: (not set)'
   }
 
   setPhase(phase) {
@@ -224,15 +297,92 @@ export class MenuScene extends Phaser.Scene {
     const isMenu = phase === 'main_menu'
     this.playBtn.setVisible(isMenu)
     this.nameBtn.setVisible(isMenu)
+    this.characterBtn.setVisible(isMenu)
     this.cancelBtn.setVisible(phase === 'matchmaking')
 
     const showMatchBanners = phase === 'found'
     this.topBars?.setVisible(showMatchBanners)
     this.bottomBars?.setVisible(showMatchBanners)
-    this.kirbyBanner?.setVisible(showMatchBanners)
-    this.WaddleBanner?.setVisible(showMatchBanners)
-    this.kirbyNameText?.setVisible(showMatchBanners)
-    this.waddleNameText?.setVisible(showMatchBanners)
+    
+    if (showMatchBanners) {
+      // Phase 'found' : affiche notre bannière en haut et celle de l'adversaire en bas
+      this.showMatchBanners()
+    } else {
+      // Menu principal : affiche seulement notre bannière
+      this.showMainMenuBanner()
+    }
+    this.myNameText?.setVisible(showMatchBanners)
+    this.opponentNameText?.setVisible(showMatchBanners)
+  }
+  
+  getCharacterButtonLabel() {
+    const config = getCharacterConfig(this.selectedCharacter)
+    return `Character: ${config ? config.displayName : 'Unknown'}`
+  }
+  
+  toggleCharacter() {
+    const available = getAvailableCharacters()
+    const currentIndex = available.indexOf(this.selectedCharacter)
+    const nextIndex = (currentIndex + 1) % available.length
+    this.selectedCharacter = available[nextIndex]
+    window.localStorage.setItem('kirby_selected_character', this.selectedCharacter)
+    this.characterBtn.setText(this.getCharacterButtonLabel())
+    this.updateCharacterBanner()
+  }
+  
+  showMainMenuBanner() {
+    // Arrête tous les tweens actifs sur les bannières pour éviter les conflits
+    const allBanners = [...Object.values(this.characterBanners), ...Object.values(this.opponentBanners)]
+    this.tweens.killTweensOf(allBanners)
+    
+    // Cache toutes les bannières
+    Object.values(this.characterBanners).forEach(b => b?.setVisible(false))
+    Object.values(this.opponentBanners).forEach(b => b?.setVisible(false))
+    
+    // Affiche seulement notre bannière en haut selon notre skin choisi
+    const myCharacter = normalizeCharacter(this.selectedCharacter)
+    const myBanner = this.characterBanners[myCharacter]
+    if (myBanner) {
+      setupBanner(myBanner, myCharacter, false)
+    }
+  }
+  
+  showMatchBanners() {
+    // Récupère les skins avec normalisation
+    const myCharacter = normalizeCharacter(this.selectedCharacter)
+    const opponentCharacter = normalizeCharacter(
+      window.localStorage.getItem('kirby_opponent_character')
+    )
+    
+    console.log('=== showMatchBanners ===')
+    console.log('Notre skin:', myCharacter, 'Adversaire:', opponentCharacter)
+    // IMPORTANT: Les deux joueurs peuvent avoir le même skin, c'est géré par le système modulaire
+    console.log('========================')
+    
+    // Cache toutes les bannières d'abord
+    Object.values(this.characterBanners).forEach(b => b?.setVisible(false))
+    Object.values(this.opponentBanners).forEach(b => b?.setVisible(false))
+    
+    // NOTRE bannière en haut (pas de flip)
+    const myBanner = this.characterBanners[myCharacter]
+    if (myBanner) {
+      setupBanner(myBanner, myCharacter, false)
+    }
+    
+    // Bannière de L'ADVERSAIRE en bas (avec flip)
+    // IMPORTANT: Utilise les instances séparées pour l'adversaire, même si c'est le même skin que nous
+    const opponentBanner = this.opponentBanners[opponentCharacter]
+    if (opponentBanner) {
+      setupBanner(opponentBanner, opponentCharacter, true)
+      console.log(`Bannière adversaire ${opponentCharacter} affichée en bas`)
+    } else {
+      console.error('Bannière adversaire introuvable pour:', opponentCharacter)
+    }
+  }
+  
+  updateCharacterBanner() {
+    // Alias pour compatibilité
+    this.showMainMenuBanner()
   }
 
   onPlay() {
@@ -244,9 +394,11 @@ export class MenuScene extends Phaser.Scene {
   }
 
   joinQueue() {
-    this.statusText.setText('Recherche d’un adversaire...')
+    this.statusText.setText("Searching for an opponent...")
     this.setPhase('matchmaking')
-    socket.emit('join_queue', { name: this.playerName })
+    const myCharacter = normalizeCharacter(this.selectedCharacter)
+    console.log('Envoi join_queue avec character:', myCharacter)
+    socket.emit('join_queue', { name: this.playerName, character: myCharacter })
   }
 
   onCancel() {
