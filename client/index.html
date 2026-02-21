@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="./gravity/kirb.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -61,6 +62,58 @@
         display: block;
         image-rendering: pixelated;
       }
+
+      #credits-btn {
+        position: fixed;
+        bottom: 10px;
+        right: 10px;
+        z-index: 9999;
+        font-family: var(--kirby-font);
+        font-size: 10px;
+        color: #fff;
+        background: rgba(0,0,0,0.5);
+        border: none;
+        padding: 8px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #credits-btn:hover {
+        background: rgba(0,0,0,0.7);
+      }
+      #credits-modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        background: rgba(0,0,0,0.8);
+        justify-content: center;
+        align-items: center;
+      }
+      #credits-modal.show { display: flex; }
+      #credits-content {
+        max-width: 480px;
+        padding: 24px;
+        background: rgba(30,30,30,0.95);
+        border-radius: 12px;
+        border: 2px solid rgba(255,255,255,0.3);
+        font-family: var(--kirby-font);
+        font-size: 11px;
+        line-height: 1.7;
+        color: #fff;
+      }
+      #credits-content a { color: #7ec8e3; }
+      #credits-content .close {
+        display: block;
+        margin-top: 16px;
+        padding: 8px 16px;
+        background: rgba(255,255,255,0.2);
+        border: none;
+        border-radius: 8px;
+        color: #fff;
+        font-family: var(--kirby-font);
+        font-size: 10px;
+        cursor: pointer;
+      }
     </style>
   </head>
 
@@ -76,6 +129,22 @@
     <!-- Jeu au premier plan, centré -->
     <div id="game1" style="position: relative; z-index: 1; display: flex; justify-content: center; align-items: center; height: 100vh;"></div>
 
+    <button id="credits-btn">Credits</button>
+
+    <div id="credits-modal">
+      <div id="credits-content">
+        <p>Hi! I'm a student learning to code and I made this as a school project. <a href="https://github.com/Paul-Garcia" target="_blank" rel="noopener">GitHub</a></p>
+        <p>I got the sprites from <a href="https://www.spriters-resource.com/snes/kirbysuperstar/asset/2907/" target="_blank" rel="noopener">Spriters Resource (Samurai Kirby)</a>. I didn't reproduce the game exactly due to laziness / lack of time.</p>
+        <p>Mid-project I realized this is pretty similar to <a href="https://laywelin.itch.io/samurai-kirby" target="_blank" rel="noopener">Samurai Kirby by Laywelin</a> – shout out to him!</p>
+        <button class="close" id="credits-close">Close</button>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById('credits-btn').onclick = () => document.getElementById('credits-modal').classList.add('show');
+      document.getElementById('credits-close').onclick = () => document.getElementById('credits-modal').classList.remove('show');
+      document.getElementById('credits-modal').onclick = (e) => { if (e.target.id === 'credits-modal') e.target.classList.remove('show'); };
+    </script>
     <script type="module" src="./main.js"></script>
   </body>
 </html>
