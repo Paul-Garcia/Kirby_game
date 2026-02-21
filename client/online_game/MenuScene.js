@@ -82,7 +82,7 @@ export class MenuScene extends Phaser.Scene {
     // Le pseudo est déjà affiché dans le HUD (haut gauche) : on masque le texte central
     this.nameText.setVisible(false)
 
-    this.statusText = this.add.text(256, 222, '', {
+    this.statusText = this.add.text(256, 140, '', {
       fontFamily: UI_FONT,
       fontSize: '16px',
       color: '#fff',
