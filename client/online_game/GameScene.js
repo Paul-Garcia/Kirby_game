@@ -123,17 +123,21 @@ export class GameScene extends Phaser.Scene {
 
         this.updateNamePositions()
 
+        // Client-side timing: measure reaction from when we receive 'go' (no network latency bias)
+        this.goReceivedAt = null
         socket.on('go', (msg) => {
             console.log('[GameScene] === GO reçu ===')
+            this.goReceivedAt = performance.now()
             this.goSprite.setFrame('go3');
             this.goSprite.setVisible(true);
         })
 
         this.input.on('pointerdown', () => {
-            // Le clic envoie juste le signal 'finish' au serveur
-            // Les animations démarreront seulement quand on reçoit 'result'
-            console.log('[GameScene] === Clic détecté - envoi finish ===')
-            socket.emit('finish')
+            const reactionTimeMs = this.goReceivedAt != null
+                ? Math.round(performance.now() - this.goReceivedAt)
+                : null
+            console.log('[GameScene] === Clic détecté - envoi finish ===', reactionTimeMs != null ? `${reactionTimeMs}ms` : '')
+            socket.emit('finish', reactionTimeMs != null ? { reactionTimeMs } : {})
         })
 
         socket.on('status', (msg) => {

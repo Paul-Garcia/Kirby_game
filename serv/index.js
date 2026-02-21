@@ -184,19 +184,28 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('finish', () => {
+  socket.on('finish', (payload) => {
     const roomId = getPlayerRoom(socket);
     const room = gameRooms[roomId];
     if (!room || !room.goTimeNs || room.res_send) return
+
+    // Client-side timing: use reactionTimeMs from client (no network latency bias)
+    // Validation: 80ms-3000ms (human range, rejects cheaters)
+    const clientReactionMs = typeof payload?.reactionTimeMs === 'number' && payload.reactionTimeMs >= 80 && payload.reactionTimeMs <= 3000
+      ? payload.reactionTimeMs
+      : null
+
     const nowNs = process.hrtime.bigint()
     const dtNs = nowNs - room.goTimeNs
-    const reactionMs = Number(dtNs) / 1e6
+    const serverReactionMs = Number(dtNs) / 1e6
+    const reactionMs = clientReactionMs ?? serverReactionMs
+
     if (room.player1.socket === socket && room.player1.finished == false) {
-      room.player1.reactionTimeNs = dtNs
+      room.player1.reactionTimeNs = BigInt(Math.round(reactionMs * 1e6))
       room.player1.reactionTime = reactionMs
       room.player1.finished = true;
     } else if (room.player2.socket === socket && room.player2.finished == false) {
-      room.player2.reactionTimeNs = dtNs
+      room.player2.reactionTimeNs = BigInt(Math.round(reactionMs * 1e6))
       room.player2.reactionTime = reactionMs
       room.player2.finished = true;
     }
