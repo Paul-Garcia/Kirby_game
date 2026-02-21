@@ -44,3 +44,10 @@ socket.on('connect', () => {
 export function refreshHud() {
   renderPseudo()
 }
+
+export function setStatusMessage(text) {
+  const el = document.getElementById('hud-status')
+  if (!el) return
+  el.textContent = text || ''
+  el.style.visibility = text ? 'visible' : 'hidden'
+}

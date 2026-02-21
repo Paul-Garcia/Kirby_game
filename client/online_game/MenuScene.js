@@ -1,4 +1,4 @@
-import { socket, refreshHud } from './socket.js'
+import { socket, refreshHud, setStatusMessage } from './socket.js'
 import { 
   loadAllCharacterAssets, 
   initializeBanners, 
@@ -82,12 +82,7 @@ export class MenuScene extends Phaser.Scene {
     // Le pseudo est déjà affiché dans le HUD (haut gauche) : on masque le texte central
     this.nameText.setVisible(false)
 
-    this.statusText = this.add.text(256, 140, '', {
-      fontFamily: UI_FONT,
-      fontSize: '16px',
-      color: '#fff',
-      align: 'center'
-    }).setOrigin(0.5).setResolution(UI_TEXT_RES)
+    // Status (Searching, Opponent disconnected, etc.) is in #hud-status (DOM, below title)
 
     // Pseudos au-dessus des bannières (affichés uniquement quand un adversaire est trouvé)
     // Notre nom en haut, adversaire en bas
@@ -123,7 +118,7 @@ export class MenuScene extends Phaser.Scene {
     })
 
     socket.on('queue_error', ({ message } = {}) => {
-      this.statusText.setText(message || 'Nickname error')
+      setStatusMessage(message || 'Nickname error')
       this.setPhase('main_menu')
     })
 
@@ -135,7 +130,7 @@ export class MenuScene extends Phaser.Scene {
       console.log('opponentCharacter est null?', opponentCharacter === null)
       console.log('opponentCharacter est vide?', opponentCharacter === '')
       
-      this.statusText.setText(`Click to get ready\nOpponent: ${opponentName || '???'}`)
+      setStatusMessage(`Click to get ready\nOpponent: ${opponentName || '???'}`)
       
       // Stocke qui nous sommes et le skin de l'adversaire
       window.localStorage.setItem('kirby_you_are', youAre || '')
@@ -167,14 +162,13 @@ export class MenuScene extends Phaser.Scene {
 
     socket.on('status', (msg) => {
       if (msg === 'waiting') {
-        this.statusText.setText('Searching for an opponent...')
+        setStatusMessage('Searching for an opponent...')
         this.setPhase('matchmaking')
       } else if (msg === 'idle' || msg === 'connected') {
-        this.statusText.setText('')
+        setStatusMessage('')
         this.setPhase('main_menu')
       } else {
-        // message libre (ex: adversaire déconnecté)
-        this.statusText.setText(String(msg || ''))
+        setStatusMessage(String(msg || ''))
         this.setPhase('main_menu')
       }
     })
@@ -394,7 +388,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   joinQueue() {
-    this.statusText.setText("Searching for an opponent...")
+    setStatusMessage('Searching for an opponent...')
     this.setPhase('matchmaking')
     const myCharacter = normalizeCharacter(this.selectedCharacter)
     console.log('Envoi join_queue avec character:', myCharacter)
@@ -403,13 +397,13 @@ export class MenuScene extends Phaser.Scene {
 
   onCancel() {
     socket.emit('leave_queue')
-    this.statusText.setText('')
+    setStatusMessage('')
     this.setPhase('main_menu')
   }
 
   openNameInput(onDone) {
     this.setPhase('main_menu')
-    this.statusText.setText('')
+    setStatusMessage('')
 
     if (this.nameDom) {
       this.nameDom.destroy()

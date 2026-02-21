@@ -34,6 +34,25 @@
         user-select: none;
         pointer-events: none;
       }
+      #hud-status {
+        position: fixed;
+        top: 95px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 9999;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #fff;
+        background: rgba(0,0,0,0.35);
+        padding: 6px 10px;
+        border-radius: 8px;
+        text-align: center;
+        white-space: pre-line;
+        user-select: none;
+        pointer-events: none;
+        visibility: hidden;
+        font-family: var(--kirby-font);
+      }
 
       /* Agrandit la fenêtre du jeu du milieu (canvas Phaser dans #game1) */
       #game1 canvas {
@@ -50,6 +69,7 @@
     <span style="position:fixed; left:-9999px; top:-9999px; font-family: 'Press Start 2P', monospace;">Press Start 2P</span>
     <div id="hud-pseudo" class="hud-box">Nickname: -</div>
     <img id="title-image" src="./online_game/title.png" alt="SAMURAI KIRBY 2">
+    <div id="hud-status"></div>
     <div id="hud-online" class="hud-box">Online: -</div>
     <div id="game2" style="position: fixed; top: 0; left: 0; z-index: 0;"></div>
 
